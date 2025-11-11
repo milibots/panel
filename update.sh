@@ -71,8 +71,13 @@ echo "🚀 Restarting service..."
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 
-# Detect server IP
-SERVER_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+# Detect server IP using ipapi
+echo "🌍 Detecting server IP..."
+SERVER_IP=$(curl -s https://ipapi.co/ip/ || echo "127.0.0.1")
+
+# Get PORT from .env file or use default
+PORT=$(grep PORT .env 2>/dev/null | cut -d '=' -f2)
+PORT=${PORT:-7878}
 
 echo ""
 echo "✅ Milibots Panel updated successfully!"
