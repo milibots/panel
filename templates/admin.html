@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>میلی بات - پنل مدیریت</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts.css">
@@ -102,7 +101,7 @@
                     <span class="text-lg font-semibold text-gray-800">پنل مدیریت میلی بات</span>
                     <span id="connectionStatus" class="ml-3 flex items-center text-xs">
                         <span class="w-2 h-2 bg-green-500 rounded-full mr-1 pulse"></span>
-                        <span class="text-green-600">متصل</span>
+                        <span class="text-green-600">آنلاین</span>
                     </span>
                 </div>
                 <div class="flex items-center space-x-4 space-x-reverse">
@@ -158,7 +157,7 @@
                     <div class="mt-2 flex justify-between items-center">
                         <div>
                             <span class="text-xs text-gray-500">
-                                تعداد سرویس‌ها: <span id="serviceCount">0</span>
+                                تعداد سرویس‌ها: <span id="serviceCount">{{ services|length if services else 0 }}</span>
                             </span>
                         </div>
                         <div>
@@ -399,88 +398,16 @@
         let eventSource = null;
         let currentService = '';
         let serviceToDelete = '';
-        let socket = null;
         let resourceChart = null;
-
-        function initWebSocket() {
-            socket = io();
-            
-            socket.on('connect', function() {
-                console.log('Connected to server');
-                updateConnectionStatus(true);
-            });
-            
-            socket.on('disconnect', function() {
-                console.log('Disconnected from server');
-                updateConnectionStatus(false);
-            });
-            
-            socket.on('service_states_update', function(data) {
-                updateServiceStates(data);
-            });
-
-            socket.on('system_stats_update', function(data) {
-                updateSystemStats(data);
-            });
-        }
-
-        function updateConnectionStatus(connected) {
-            const statusElement = document.getElementById('connectionStatus');
-            if (connected) {
-                statusElement.innerHTML = '<span class="w-2 h-2 bg-green-500 rounded-full mr-1 pulse"></span><span class="text-green-600">متصل</span>';
-            } else {
-                statusElement.innerHTML = '<span class="w-2 h-2 bg-red-500 rounded-full mr-1"></span><span class="text-red-600">قطع</span>';
-            }
-        }
-
-        function updateServiceStates(states) {
-            for (const [serviceName, state] of Object.entries(states)) {
-                const serviceId = serviceName.replace(/\./g, '-');
-                const statusElement = document.getElementById(`status-${serviceId}`);
-                const enabledElement = document.getElementById(`enabled-${serviceId}`);
-                const cardElement = document.getElementById(`service-${serviceId}`);
-                
-                if (statusElement && enabledElement && cardElement) {
-                    let statusText = 'نامشخص';
-                    let statusClass = 'bg-gray-100 text-gray-800';
-                    
-                    if (state.active === 'active') {
-                        statusText = 'فعال';
-                        statusClass = 'bg-green-100 text-green-800';
-                    } else if (state.active === 'inactive') {
-                        statusText = 'غیرفعال';
-                        statusClass = 'bg-yellow-100 text-yellow-800';
-                    } else if (state.active === 'failed') {
-                        statusText = 'خطادار';
-                        statusClass = 'bg-red-100 text-red-800';
-                    }
-                    
-                    statusElement.textContent = statusText;
-                    statusElement.className = `status-badge px-2 py-0.5 text-xs rounded-full ${statusClass}`;
-                    
-                    let enabledText = 'فعال شده';
-                    let enabledClass = 'bg-blue-100 text-blue-800';
-                    
-                    if (state.enabled === 'disabled') {
-                        enabledText = 'غیرفعال شده';
-                        enabledClass = 'bg-gray-100 text-gray-800';
-                    }
-                    
-                    enabledElement.textContent = enabledText;
-                    enabledElement.className = `enabled-badge px-2 py-0.5 text-xs rounded-full ${enabledClass}`;
-                    
-                    cardElement.className = cardElement.className.replace(/service-(active|inactive|failed)/g, '');
-                    cardElement.classList.add(`service-${state.active}`);
-                }
-            }
-        }
+        let statsUpdateInterval = null;
+        let serviceUpdateInterval = null;
 
         async function serviceAction(serviceName, action) {
             try {
                 const formData = new FormData();
                 formData.append('action', action);
                 
-                const response = await fetch(`/admin/service/${serviceName}`, {
+                const response = await fetch(`/admin/service/${encodeURIComponent(serviceName)}`, {
                     method: 'POST',
                     body: formData,
                     headers: {
@@ -492,6 +419,8 @@
                 
                 if (result.success) {
                     showNotification(result.message, 'success');
+                    // Update service status after action
+                    setTimeout(updateServiceStates, 1000);
                 } else {
                     showNotification(result.message, 'error');
                 }
@@ -503,13 +432,63 @@
 
         async function toggleService(serviceName) {
             try {
-                const response = await fetch(`/admin/service/${serviceName}/status`);
+                const response = await fetch(`/admin/service/${encodeURIComponent(serviceName)}/status`);
                 const status = await response.json();
                 
                 const action = status.enabled === 'enabled' ? 'disable' : 'enable';
                 await serviceAction(serviceName, action);
             } catch (error) {
                 showNotification('خطا در دریافت وضعیت سرویس', 'error');
+            }
+        }
+
+        async function updateServiceStates() {
+            try {
+                const response = await fetch('/admin/service-states');
+                const states = await response.json();
+                
+                for (const [serviceName, state] of Object.entries(states)) {
+                    const serviceId = serviceName.replace(/\./g, '-');
+                    const statusElement = document.getElementById(`status-${serviceId}`);
+                    const enabledElement = document.getElementById(`enabled-${serviceId}`);
+                    const cardElement = document.getElementById(`service-${serviceId}`);
+                    
+                    if (statusElement && enabledElement && cardElement) {
+                        let statusText = 'نامشخص';
+                        let statusClass = 'bg-gray-100 text-gray-800';
+                        
+                        if (state.active === 'active') {
+                            statusText = 'فعال';
+                            statusClass = 'bg-green-100 text-green-800';
+                        } else if (state.active === 'inactive') {
+                            statusText = 'غیرفعال';
+                            statusClass = 'bg-yellow-100 text-yellow-800';
+                        } else if (state.active === 'failed') {
+                            statusText = 'خطادار';
+                            statusClass = 'bg-red-100 text-red-800';
+                        }
+                        
+                        statusElement.textContent = statusText;
+                        statusElement.className = `status-badge px-2 py-0.5 text-xs rounded-full ${statusClass}`;
+                        
+                        let enabledText = 'فعال شده';
+                        let enabledClass = 'bg-blue-100 text-blue-800';
+                        
+                        if (state.enabled === 'disabled') {
+                            enabledText = 'غیرفعال شده';
+                            enabledClass = 'bg-gray-100 text-gray-800';
+                        }
+                        
+                        enabledElement.textContent = enabledText;
+                        enabledElement.className = `enabled-badge px-2 py-0.5 text-xs rounded-full ${enabledClass}`;
+                        
+                        cardElement.className = cardElement.className.replace(/service-(active|inactive|failed)/g, '');
+                        cardElement.classList.add(`service-${state.active}`);
+                        cardElement.dataset.status = state.active;
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating service states:', error);
             }
         }
 
@@ -552,9 +531,7 @@
         }
 
         function refreshServices() {
-            if (socket) {
-                socket.emit('request_service_update');
-            }
+            updateServiceStates();
             showNotification('در حال بروزرسانی وضعیت سرویس‌ها...', 'info');
         }
 
@@ -603,7 +580,7 @@
                 eventSource.close();
             }
 
-            eventSource = new EventSource(`/admin/logs/${serviceName}`);
+            eventSource = new EventSource(`/admin/logs/${encodeURIComponent(serviceName)}`);
 
             eventSource.onmessage = function(e) {
                 const logContainer = document.getElementById('logContainer');
@@ -665,9 +642,13 @@
             document.getElementById('overlay').classList.remove('active');
         }
 
-        function refreshSystemStats() {
-            if (socket) {
-                socket.emit('request_system_stats');
+        async function refreshSystemStats() {
+            try {
+                const response = await fetch('/admin/latest-stats');
+                const stats = await response.json();
+                updateSystemStats(stats);
+            } catch (error) {
+                console.error('Error fetching system stats:', error);
             }
         }
 
@@ -812,11 +793,27 @@
             updateServiceCount();
         }
 
+        // Initialize periodic updates
+        function startPeriodicUpdates() {
+            // Update service states every 10 seconds
+            serviceUpdateInterval = setInterval(updateServiceStates, 10000);
+            
+            // Update system stats every 5 seconds (only when stats sheet is open)
+            statsUpdateInterval = setInterval(() => {
+                if (document.getElementById('serverStatusBottomSheet').classList.contains('open')) {
+                    refreshSystemStats();
+                }
+            }, 5000);
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
-            initWebSocket();
             updateDateTimeAndCount();
             setInterval(updateDateTimeAndCount, 1000);
-            setInterval(refreshSystemStats, 5000);
+            startPeriodicUpdates();
+            
+            // Initial updates
+            updateServiceStates();
+            refreshSystemStats();
         });
     </script>
 </body>
