@@ -5,19 +5,21 @@ import shlex
 import time
 import psutil
 from dotenv import load_dotenv
-from flask_socketio import SocketIO
 import json
+import threading
+from datetime import datetime
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'a_default_secret_key_please_change_me')
-socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=60, ping_interval=25)
 
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
 
+# Global storage for service states
 service_states = {}
+last_system_stats = {}
 
 def run_cmd(cmd, timeout=10):
     try:
@@ -48,7 +50,6 @@ def update_all_service_states():
                 'enabled': enabled_status,
                 'description': service['description']
             }
-        socketio.emit('service_states_update', service_states)
 
 def get_system_stats():
     try:
@@ -57,7 +58,7 @@ def get_system_stats():
         disk = psutil.disk_usage('/')
         load_avg = os.getloadavg()
         
-        return {
+        stats = {
             'cpu_percent': cpu_percent,
             'memory_total': memory.total,
             'memory_used': memory.used,
@@ -66,8 +67,15 @@ def get_system_stats():
             'disk_used': disk.used,
             'disk_percent': disk.percent,
             'load_avg': load_avg,
-            'uptime': time.time() - psutil.boot_time()
+            'uptime': time.time() - psutil.boot_time(),
+            'timestamp': datetime.now().isoformat()
         }
+        
+        # Store for later retrieval
+        global last_system_stats
+        last_system_stats = stats
+        
+        return stats
     except Exception as e:
         return {'error': str(e)}
 
@@ -167,23 +175,20 @@ def stream_service_logs(service_name):
     except Exception as e:
         return None, f"Error streaming logs: {e}"
 
-@socketio.on('connect')
-def handle_connect():
-    print(f"Client connected: {request.sid}")
-    socketio.emit('service_states_update', service_states)
+def background_stats_updater():
+    """Background thread to periodically update system stats"""
+    while True:
+        try:
+            get_system_stats()
+            update_all_service_states()
+            time.sleep(5)  # Update every 5 seconds
+        except Exception as e:
+            print(f"Error in background updater: {e}")
+            time.sleep(10)
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f"Client disconnected: {request.sid}")
-
-@socketio.on('request_service_update')
-def handle_service_update():
-    update_all_service_states()
-
-@socketio.on('request_system_stats')
-def handle_system_stats():
-    stats = get_system_stats()
-    socketio.emit('system_stats_update', stats)
+# Start background thread
+stats_thread = threading.Thread(target=background_stats_updater, daemon=True)
+stats_thread.start()
 
 @app.route('/')
 def index():
@@ -256,6 +261,14 @@ def admin_service_status(service_name):
         'enabled': enabled_status
     })
 
+@app.route('/admin/service-states')
+def admin_service_states():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    update_all_service_states()
+    return jsonify(service_states)
+
 @app.route('/admin/logs/<service_name>')
 def admin_service_logs(service_name):
     if not session.get('logged_in'):
@@ -277,6 +290,13 @@ def admin_system_stats():
     stats = get_system_stats()
     return jsonify(stats)
 
+@app.route('/admin/latest-stats')
+def admin_latest_stats():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    return jsonify(last_system_stats)
+
 if __name__ == '__main__':
     print("✅ Flask Admin Service Panel running on http://0.0.0.0:7878")
-    socketio.run(app, debug=True, host='0.0.0.0', port=7878, allow_unsafe_werkzeug=True)
+    app.run(debug=True, host='0.0.0.0', port=7878)
