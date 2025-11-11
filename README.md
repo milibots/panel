@@ -9,7 +9,7 @@ A lightweight Flask-based admin panel with automatic systemd service setup.
 Run this on any **Ubuntu/Debian** server (as root or with sudo):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/milibotss-spec/panel/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/milibots/panel/main/install.sh)
 ````
 
 The installer will:
@@ -40,7 +40,7 @@ Password: milibots
 To completely remove the panel and its service:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/milibotss-spec/panel/main/uninstall.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/milibots/panel/main/uninstall.sh)
 ```
 
 This will:
@@ -56,7 +56,7 @@ This will:
 To update your existing panel to the latest version:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/milibotss-spec/panel/main/update.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/milibots/panel/main/update.sh)
 ```
 
 This will:
@@ -92,8 +92,9 @@ systemctl stop milibots-panel.service
 ## 🧑‍💻 Maintainer
 
 Developed by **MiliBots Team**
-GitHub: [@milibotss-spec](https://github.com/milibotss-spec)
+GitHub: [@milibots](https://github.com/milibots)
 
 
 Do you want me to do that next?
 ```
+
