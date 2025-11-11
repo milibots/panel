@@ -3,6 +3,7 @@ import os
 import subprocess
 import shlex
 import time
+import psutil
 from dotenv import load_dotenv
 from flask_socketio import SocketIO
 import json
@@ -11,16 +12,14 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'a_default_secret_key_please_change_me')
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=60, ping_interval=25)
 
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
 
-# Store service states for real-time updates
 service_states = {}
 
 def run_cmd(cmd, timeout=10):
-    """Run shell command safely with timeout, returning (success, stdout, stderr)."""
     try:
         result = subprocess.run(cmd, shell=True, text=True, capture_output=True, timeout=timeout)
         return (result.returncode == 0), result.stdout.strip(), result.stderr.strip()
@@ -30,7 +29,6 @@ def run_cmd(cmd, timeout=10):
         return False, "", f"Command error: {e}"
 
 def get_service_status(service_name):
-    """Get detailed status of a service."""
     ok, output, err = run_cmd(f"systemctl is-active {shlex.quote(service_name)}")
     active_status = output.strip() if ok else "unknown"
     
@@ -40,7 +38,6 @@ def get_service_status(service_name):
     return active_status, enabled_status
 
 def update_all_service_states():
-    """Update all service states and emit via WebSocket."""
     services, error = get_running_services()
     if not error:
         for service in services:
@@ -51,12 +48,30 @@ def update_all_service_states():
                 'enabled': enabled_status,
                 'description': service['description']
             }
-        
-        # Emit update to all connected clients
         socketio.emit('service_states_update', service_states)
 
+def get_system_stats():
+    try:
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        load_avg = os.getloadavg()
+        
+        return {
+            'cpu_percent': cpu_percent,
+            'memory_total': memory.total,
+            'memory_used': memory.used,
+            'memory_percent': memory.percent,
+            'disk_total': disk.total,
+            'disk_used': disk.used,
+            'disk_percent': disk.percent,
+            'load_avg': load_avg,
+            'uptime': time.time() - psutil.boot_time()
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
 def run_systemctl_command(action, service_name):
-    """Perform start/stop/restart/status/enable/disable/delete actions on a systemd service safely."""
     valid_actions = ['start', 'stop', 'restart', 'status', 'enable', 'disable', 'delete']
     if action not in valid_actions:
         return False, f"Invalid action: {action}"
@@ -64,20 +79,15 @@ def run_systemctl_command(action, service_name):
     service_path = shlex.quote(service_name)
 
     try:
-        # Delete service (remove unit file and disable)
         if action == 'delete':
-            # Stop service first
             run_cmd(f"sudo systemctl stop {service_path}")
-            # Disable service
             run_cmd(f"sudo systemctl disable {service_path}")
-            # Remove service file (assuming standard location)
             ok, _, _ = run_cmd(f"sudo rm -f /etc/systemd/system/{service_path}")
             if ok:
                 run_cmd("sudo systemctl daemon-reload")
                 return True, f"Service '{service_name}' deleted successfully."
             return False, f"Failed to delete service '{service_name}'"
 
-        # Enable/disable service
         if action in ['enable', 'disable']:
             ok, out, err = run_cmd(f"sudo systemctl {action} {service_path}")
             if ok:
@@ -85,17 +95,14 @@ def run_systemctl_command(action, service_name):
                 return True, out or f"Service '{service_name}' {action}d successfully."
             return False, err or out
 
-        # Restart = stop + start manually (safer)
         if action == 'restart':
             ok1, _, err1 = run_cmd(f"sudo systemctl stop {service_path}")
             time.sleep(2)
 
-            # Force kill if still alive
             ok2, pid_out, _ = run_cmd(f"systemctl show -p MainPID {service_path} | cut -d= -f2")
             if pid_out.strip() and pid_out.strip() != "0":
                 run_cmd(f"sudo kill -9 {pid_out.strip()}")
 
-            # Special cleanup for bot.service
             if service_name == 'bot.service':
                 run_cmd("sudo tmux kill-session -t bot 2>/dev/null")
                 run_cmd("sudo rm -f /root/NIVa/bot/NIVA.session /root/NIVa/bot/NIVA.session-journal")
@@ -105,10 +112,8 @@ def run_systemctl_command(action, service_name):
                 return True, f"Service '{service_name}' restarted successfully."
             return False, f"Restart failed: {err1 or err3}"
 
-        # Normal start/stop/status
         ok, out, err = run_cmd(f"sudo systemctl {action} {service_path}")
         if not ok:
-            # Try force kill if stop failed
             if action == 'stop':
                 ok_pid, pid_out, _ = run_cmd(f"systemctl show -p MainPID {service_path} | cut -d= -f2")
                 if ok_pid and pid_out.strip() and pid_out.strip() != "0":
@@ -121,7 +126,6 @@ def run_systemctl_command(action, service_name):
         return False, f"Unexpected error: {str(e)}"
 
 def get_running_services():
-    """Return a list of all .service units with details."""
     ok, output, err = run_cmd("systemctl list-units --type=service --all --no-pager --no-legend")
     if not ok:
         return [], f"Failed to fetch service list: {err}"
@@ -143,7 +147,6 @@ def get_running_services():
     return services, None
 
 def stream_service_logs(service_name):
-    """Stream live logs for a service using SSE."""
     command = f"sudo journalctl -u {shlex.quote(service_name)} -f -n 50"
     try:
         process = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
@@ -164,18 +167,23 @@ def stream_service_logs(service_name):
     except Exception as e:
         return None, f"Error streaming logs: {e}"
 
-# WebSocket event handlers
 @socketio.on('connect')
 def handle_connect():
-    """Handle client connection."""
     print(f"Client connected: {request.sid}")
-    # Send current service states to newly connected client
     socketio.emit('service_states_update', service_states)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """Handle client disconnection."""
     print(f"Client disconnected: {request.sid}")
+
+@socketio.on('request_service_update')
+def handle_service_update():
+    update_all_service_states()
+
+@socketio.on('request_system_stats')
+def handle_system_stats():
+    stats = get_system_stats()
+    socketio.emit('system_stats_update', stats)
 
 @app.route('/')
 def index():
@@ -185,7 +193,6 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Simple admin login."""
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
@@ -199,14 +206,12 @@ def login():
 
 @app.route('/logout')
 def logout():
-    """Logout the admin."""
     session.pop('logged_in', None)
     flash('👋 You have been logged out.', 'info')
     return redirect(url_for('login'))
 
 @app.route('/admin')
 def admin_dashboard():
-    """Dashboard showing all services."""
     if not session.get('logged_in'):
         flash('⚠️ Please log in to access the admin dashboard.', 'warning')
         return redirect(url_for('login'))
@@ -216,14 +221,12 @@ def admin_dashboard():
         flash(error, 'danger')
         services = []
     
-    # Update service states for real-time functionality
     update_all_service_states()
     
     return render_template('admin.html', services=services)
 
 @app.route('/admin/service/<service_name>', methods=['POST'])
 def admin_service_action(service_name):
-    """Perform start/stop/restart/status/enable/disable/delete for a given service."""
     if not session.get('logged_in'):
         return jsonify({'success': False, 'message': 'Please log in first.'}), 401
 
@@ -233,7 +236,6 @@ def admin_service_action(service_name):
 
     success, message = run_systemctl_command(action, service_name)
     
-    # Update service states after action
     update_all_service_states()
     
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -244,7 +246,6 @@ def admin_service_action(service_name):
 
 @app.route('/admin/service/<service_name>/status')
 def admin_service_status(service_name):
-    """Get current status of a service."""
     if not session.get('logged_in'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -257,7 +258,6 @@ def admin_service_status(service_name):
 
 @app.route('/admin/logs/<service_name>')
 def admin_service_logs(service_name):
-    """Stream live logs for the given service."""
     if not session.get('logged_in'):
         flash('⚠️ Please log in to view logs.', 'warning')
         return redirect(url_for('login'))
@@ -268,6 +268,14 @@ def admin_service_logs(service_name):
         return redirect(url_for('admin_dashboard'))
 
     return Response(generator, mimetype='text/event-stream')
+
+@app.route('/admin/system-stats')
+def admin_system_stats():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    stats = get_system_stats()
+    return jsonify(stats)
 
 if __name__ == '__main__':
     print("✅ Flask Admin Service Panel running on http://0.0.0.0:7878")
