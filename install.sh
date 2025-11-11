@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO_URL="https://github.com/milibotss-spec/panel.git"
+REPO_URL="https://github.com/milibots/panel.git"
 APP_DIR="$PWD/milibots-panel"
 SERVICE_NAME="milibots-panel.service"
 PYTHON_BIN="python3"
