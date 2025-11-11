@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>میلی بات - پنل مدیریت</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts.css">
+    <style>
+        body {
+            font-family: Vazirmatn, sans-serif;
+            font-size: 0.875rem;
+        }
+        .service-card {
+            transition: all 0.2s ease;
+            border-right: 4px solid;
+        }
+        .service-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .service-active {
+            border-right-color: #10B981;
+        }
+        .service-inactive {
+            border-right-color: #F59E0B;
+        }
+        .log-container {
+            height: 300px;
+            overflow-y: auto;
+            /* Added standard monospace fonts and ltr direction */
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            direction: ltr;
+            text-align: left; /* Ensure text aligns left in LTR */
+            background-color: #1E293B;
+            color: #E2E8F0;
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.8125rem;
+        }
+        .log-line {
+            margin-bottom: 0.2rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .text-xs {
+            font-size: 0.75rem;
+        }
+        .text-sm {
+            font-size: 0.8125rem;
+        }
+        .text-base {
+            font-size: 0.875rem;
+        }
+        .text-lg {
+            font-size: 0.9375rem;
+        }
+        .text-xl {
+            font-size: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-14">
+                <div class="flex items-center">
+                    <i class="fas fa-robot text-purple-600 text-lg ml-2"></i>
+                    <span class="text-lg font-semibold text-gray-800">پنل مدیریت میلی بات</span>
+                </div>
+                <div class="flex items-center space-x-4 space-x-reverse">
+
+                    <a href="{{ url_for('logout') }}"
+                       class="text-gray-600 hover:text-purple-600 px-3 py-2 rounded-md text-xs font-medium">
+                        <i class="fas fa-sign-out-alt ml-1"></i> خروج
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+                {% for category, message in messages %}
+                    <div class="bg-{{ 'red' if category == 'danger' else 'green' }}-50 border-r-4 border-{{ 'red' if category == 'danger' else 'green' }}-500 p-3">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-{{ 'exclamation-triangle' if category == 'danger' else 'check-circle' }} text-{{ 'red' if category == 'danger' else 'green' }}-500"></i>
+                            </div>
+                            <div class="mr-3">
+                                <p class="text-xs text-{{ 'red' if category == 'danger' else 'green' }}-700">{{ message }}</p>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <div class="py-4">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Dashboard Header -->
+            <div class="bg-white overflow-hidden shadow rounded-lg mb-4">
+                <div class="px-4 py-4 sm:p-5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-base leading-6 font-medium text-gray-900">
+                                مدیریت سرویس‌های بات
+                            </h3>
+                            
+                        </div>
+                        <div class="flex space-x-3 space-x-reverse">
+                            <button onclick="refreshPage()" class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+                                <i class="fas fa-sync-alt ml-2"></i> بروزرسانی
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex justify-between items-center">
+                        <div>
+                            <span class="text-xs text-gray-500">
+                                تعداد سرویس‌ها: <span id="serviceCount">0</span>
+                            </span>
+                        </div>
+                        <div>
+                            <span class="text-xs text-gray-500">
+                                تاریخ و ساعت: <span id="currentTime"></span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="bg-white overflow-hidden shadow rounded-lg mb-4 px-4 py-4 sm:px-6">
+                <div class="flex items-center justify-between">
+                    <div class="flex flex-col md:flex-row items-center space-y-2 md:space-y-0 md:space-x-4 md:space-x-reverse">
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                                <i class="fas fa-search text-gray-400"></i>
+                            </div>
+                            <input type="text" id="searchInput" onkeyup="filterServices()" placeholder="جستجو سرویس..." class="block py-1.5 pr-3 pl-10 w-full text-xs text-gray-900 border border-gray-300 rounded-md bg-gray-50 focus:ring-purple-500 focus:border-purple-500">
+                        </div>
+
+                        <div>
+                            <select id="statusFilter" onchange="filterServices()" class="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-md focus:ring-purple-500 focus:border-purple-500 block w-full p-1.5">
+                                <option value="">همه وضعیت‌ها</option>
+                                <option value="active">فعال</option>
+                                <option value="inactive">غیرفعال</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <select id="sortOrder" onchange="filterServices()" class="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-md focus:ring-purple-500 focus:border-purple-500 block w-full p-1.5">
+                                <option value="alphabetic">مرتب سازی الفبایی</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Services Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="servicesContainer">
+                {% if services %}
+                    {% for service in services %}
+                        
+                        <div class="service-card bg-white rounded-lg shadow {{ 'service-active' if service.active == 'active' else 'service-inactive' }}" data-name="{{ service.unit }}" data-status="{{ service.active }}">
+                            <div class="p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <h3 class="text-sm font-medium text-gray-900 truncate">
+                                        {{ service.unit }}
+                                    </h3>
+                                    <span class="px-2 py-0.5 text-xs rounded-full {{ 'bg-green-100 text-green-800' if service.active == 'active' else 'bg-yellow-100 text-yellow-800' }}">
+                                        {% if service.active == 'active' %}
+                                        فعال
+                                        {% else %}
+                                        غیرفعال
+                                        {% endif %}
+                                    </span>
+                                </div>
+
+                                <p class="text-xs text-gray-500 mb-3">
+                                    {{ service.description }}
+                                </p>
+
+                                <div class="flex space-x-2 space-x-reverse">
+                                    <form action="{{ url_for('admin_service_action', service_name=service.unit) }}" method="post" class="flex-1">
+                                        <input type="hidden" name="action" value="restart">
+                                        <button type="submit" class="w-full inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-xs leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                            <i class="fas fa-sync-alt ml-2"></i> راه‌اندازی مجدد
+                                        </button>
+                                    </form>
+                                    <form action="{{ url_for('admin_service_action', service_name=service.unit) }}" method="post" class="flex-1">
+                                        <input type="hidden" name="action" value="stop">
+                                        <button type="submit" class="w-full inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-xs leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                                            <i class="fas fa-stop ml-2"></i> توقف
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <div class="mt-3">
+                                    <button onclick="showLogs('{{ service.unit }}')" class="w-full inline-flex items-center justify-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+                                        <i class="fas fa-terminal ml-2"></i> مشاهده لاگ‌ها
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    {% endfor %}
+                {% else %}
+                    <div class="col-span-full bg-white rounded-lg shadow p-5 text-center">
+                        <i class="fas fa-exclamation-circle text-gray-400 text-3xl mb-2"></i>
+                        <h3 class="text-sm font-medium text-gray-900">سرویسی یافت نشد</h3>
+                        <p class="mt-1 text-xs text-gray-500">
+                            هیچ سرویس کلونر فعالی وجود ندارد یا امکان دریافت وضعیت سرویس‌ها فراهم نیست.
+                        </p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Modal -->
+    <div id="logsModal" class="fixed inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="hideLogs()"></div>
+
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div class="inline-block align-bottom bg-white rounded-lg text-right overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-5 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:mr-4 sm:text-right w-full">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-base leading-6 font-medium text-gray-900" id="modal-title">
+                                    لاگ‌های سرویس: <span id="serviceName"></span>
+                                </h3>
+                                <button onclick="hideLogs()" class="text-gray-400 hover:text-gray-500">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="mt-3">
+                                <div class="log-container" id="logContainer">
+                                    <div class="log-line">در حال اتصال به لاگ‌ها...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse"> {# Changed flex direction for RTL layout #}
+                    {# Added Download Button #}
+                    <button type="button" onclick="downloadLogs()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-1.5 bg-purple-600 text-xs font-medium text-white hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        <i class="fas fa-download ml-2"></i> دانلود لاگ‌ها
+                    </button>
+                    <button type="button" onclick="hideLogs()" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-1.5 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm">
+                        بستن
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let currentService = '';
+
+        function refreshPage() {
+            window.location.reload();
+        }
+
+        function showLogs(serviceName) {
+            currentService = serviceName;
+            document.getElementById('serviceName').textContent = serviceName;
+            document.getElementById('logsModal').classList.remove('hidden');
+
+            // Clear previous logs
+            document.getElementById('logContainer').innerHTML = '<div class="log-line">در حال بارگذاری لاگ‌ها...</div>';
+
+            // Close any existing connection
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            // Connect to SSE endpoint
+            eventSource = new EventSource(`/admin/logs/${serviceName}`);
+
+            eventSource.onmessage = function(e) {
+                const logContainer = document.getElementById('logContainer');
+                const logLine = document.createElement('div');
+                logLine.className = 'log-line';
+                logLine.textContent = e.data;
+                logContainer.appendChild(logLine);
+                // Auto-scroll to the bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+            };
+
+            eventSource.onerror = function(e) {
+                const logContainer = document.getElementById('logContainer');
+                const errorLine = document.createElement('div');
+                errorLine.className = 'log-line text-red-400';
+                errorLine.textContent = 'خطا: اتصال به سرور لاگ‌ها ناموفق بود.';
+                logContainer.appendChild(errorLine);
+                 // Auto-scroll to the bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+                if (eventSource) { // Check if eventSource is still valid before closing
+                    eventSource.close();
+                }
+            };
+        }
+
+        function hideLogs() {
+            document.getElementById('logsModal').classList.add('hidden');
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        // Function to download logs
+        function downloadLogs() {
+            const logContainer = document.getElementById('logContainer');
+            const logs = Array.from(logContainer.children)
+                              .map(line => line.textContent)
+                              .join('\n'); // Join lines with newline character
+
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentService}_logs_${new Date().toISOString().slice(0, 10)}.txt`; // Filename with service name and date
+            document.body.appendChild(a); // Append to body to make it clickable
+            a.click(); // Trigger download
+
+            document.body.removeChild(a); // Clean up
+            URL.revokeObjectURL(url); // Release the object URL
+        }
+
+        function filterServices() {
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            const statusFilter = document.getElementById('statusFilter').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+            const servicesContainer = document.getElementById('servicesContainer');
+            const serviceCards = Array.from(servicesContainer.children);
+
+            let filteredServices = serviceCards.filter(card => {
+                const name = card.dataset.name.toLowerCase();
+                const status = card.dataset.status;
+
+                const nameMatch = name.includes(searchInput);
+                const statusMatch = statusFilter === '' || status === statusFilter;
+
+                return nameMatch && statusMatch;
+            });
+
+            if (sortOrder === 'alphabetic') {
+                filteredServices.sort((a, b) => a.dataset.name.localeCompare(b.dataset.name, 'fa'));
+            }
+
+            // Clear the container
+            servicesContainer.innerHTML = '';
+
+            // Append the filtered and sorted services
+            filteredServices.forEach(service => servicesContainer.appendChild(service));
+        }
+
+        // Update service count, time, and date
+        function updateDateTimeAndCount() {
+            const now = new Date();
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+            const dateTimeString = now.toLocaleDateString('fa-IR', options);
+            document.getElementById('currentTime').textContent = dateTimeString;
+
+            const servicesContainer = document.getElementById('servicesContainer');
+            const serviceCount = servicesContainer.children.length;
+            document.getElementById('serviceCount').textContent = serviceCount;
+        }
+
+        // Call updateDateTimeAndCount every second
+        setInterval(updateDateTimeAndCount, 1000);
+
+        // Initial call to set the values when the page loads
+        updateDateTimeAndCount();
+    </script>
+</body>
+</html>
